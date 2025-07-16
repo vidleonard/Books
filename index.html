@@ -34,23 +34,49 @@
         const appId = firebaseConfig.appId; // Usa el appId de tu configuración de Firebase
         const initialAuthToken = null; // No se usa un token inicial en despliegues normales fuera de Canvas
 
-        // Initialize Firebase
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-        const auth = getAuth(app);
+        let app, db, auth;
+        let userId = null; // Almacenará el ID de usuario autenticado
+        let isAuthReady = false; // Bandera para indicar si el estado de autenticación está listo
 
-        let userId = null; // Will store the authenticated user ID
-        let isAuthReady = false; // Flag to indicate if auth state is ready
+        try {
+            // Inicializar Firebase
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            console.log("Firebase inicializado correctamente.");
+        } catch (error) {
+            console.error("Error al inicializar Firebase. Verifica tu firebaseConfig:", error);
+            // Si hay un error en la configuración, el contador no funcionará.
+            document.getElementById('visit-count').textContent = 'Error de Configuración';
+            isAuthReady = true; // Marca como listo para evitar bucles, aunque con error.
+            return; // Detiene la ejecución si la inicialización falla.
+        }
 
         // Función para manejar la lógica del contador de visitas
         function handleVisitCounter() {
-            // IMPORTANTE: Asegúrate de que tus reglas de seguridad de Firestore permitan la escritura pública para esta colección.
-            // Ejemplo de reglas (en Firebase Console -> Firestore Database -> Reglas):
-            // match /artifacts/{appId}/public/data/visits/{documentId} {
-            //   allow read, write: if request.auth != null;
+            // ===========================================================================================
+            // ¡ATENCIÓN CRÍTICA!
+            // Para que este contador funcione, DEBES configurar las reglas de seguridad de Firestore.
+            // Ve a tu Consola de Firebase -> Firestore Database -> Pestaña "Reglas".
+            // Asegúrate de que las reglas permitan leer y escribir en esta ruta para usuarios autenticados:
+            //
+            // rules_version = '2';
+            // service cloud.firestore {
+            //   match /databases/{database}/documents {
+            //     match /artifacts/{appId}/public/data/visits/{documentId} {
+            //       allow read, write: if request.auth != null;
+            //     }
+            //     // Tu regla general de denegación (si la tienes) debe ir DESPUÉS de esta.
+            //     match /{document=**} {
+            //       allow read, write: if false;
+            //     }
+            //   }
             // }
+            // ===========================================================================================
             const visitCounterRef = doc(db, `artifacts/${appId}/public/data/visits`, 'page_visits');
             const visitCountElement = document.getElementById('visit-count');
+            const currentUserIdElement = document.getElementById('current-user-id');
+
 
             // Escuchar actualizaciones en tiempo real del contador de visitas
             onSnapshot(visitCounterRef, (docSnap) => {
@@ -62,9 +88,9 @@
                     visitCountElement.textContent = currentCount;
                 }
             }, (error) => {
-                console.error("Error al escuchar el contador de visitas:", error);
+                console.error("Error al escuchar el contador de visitas (posiblemente reglas de seguridad):", error);
                 if (visitCountElement) {
-                    visitCountElement.textContent = 'Error'; // Muestra estado de error
+                    visitCountElement.textContent = 'Error (Reglas?)'; // Muestra estado de error
                 }
             });
 
@@ -80,8 +106,13 @@
                         .catch(err => console.error("Error al establecer el documento (nuevo):", err));
                 }
             }).catch(error => {
-                console.error("Error al obtener el documento para el incremento:", error);
+                console.error("Error al obtener el documento para el incremento (verifica conexión/reglas):", error);
             });
+
+            // Mostrar el userId actual
+            if (currentUserIdElement && userId) {
+                currentUserIdElement.textContent = userId;
+            }
         }
 
         // Autenticar usuario
@@ -312,6 +343,10 @@
             <!-- Visit Counter Display -->
             <p class="text-sm mt-4">
                 Visitas a la página: <span id="visit-count" class="font-bold text-white">0</span>
+            </p>
+            <!-- User ID Display for Debugging -->
+            <p class="text-xs mt-2 text-gray-500">
+                ID de usuario (debug): <span id="current-user-id" class="font-mono text-gray-600">Cargando...</span>
             </p>
         </div>
     </footer>
