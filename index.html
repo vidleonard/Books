@@ -22,10 +22,17 @@
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, getDoc, setDoc, onSnapshot, increment } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Global variables provided by the Canvas environment
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        // Configuración de Firebase para tu proyecto 'books-dd274'
+        const firebaseConfig = {
+          apiKey: "AIzaSyCt1Yo68hX7eXtNYavTnQ2FFPVJgqZZmx0",
+          authDomain: "books-dd274.firebaseapp.com",
+          projectId: "books-dd274",
+          storageBucket: "books-dd274.firebasestorage.app",
+          messagingSenderId: "935342008830",
+          appId: "1:935342008830:web:bcc78ccd50c9fc4c3938af"
+        };
+        const appId = firebaseConfig.appId; // Usa el appId de tu configuración de Firebase
+        const initialAuthToken = null; // No se usa un token inicial en despliegues normales fuera de Canvas
 
         // Initialize Firebase
         const app = initializeApp(firebaseConfig);
@@ -35,12 +42,17 @@
         let userId = null; // Will store the authenticated user ID
         let isAuthReady = false; // Flag to indicate if auth state is ready
 
-        // Function to handle visit counter logic
+        // Función para manejar la lógica del contador de visitas
         function handleVisitCounter() {
+            // IMPORTANTE: Asegúrate de que tus reglas de seguridad de Firestore permitan la escritura pública para esta colección.
+            // Ejemplo de reglas (en Firebase Console -> Firestore Database -> Reglas):
+            // match /artifacts/{appId}/public/data/visits/{documentId} {
+            //   allow read, write: if request.auth != null;
+            // }
             const visitCounterRef = doc(db, `artifacts/${appId}/public/data/visits`, 'page_visits');
             const visitCountElement = document.getElementById('visit-count');
 
-            // Listen for real-time updates to the visit count
+            // Escuchar actualizaciones en tiempo real del contador de visitas
             onSnapshot(visitCounterRef, (docSnap) => {
                 let currentCount = 0;
                 if (docSnap.exists()) {
@@ -52,11 +64,11 @@
             }, (error) => {
                 console.error("Error al escuchar el contador de visitas:", error);
                 if (visitCountElement) {
-                    visitCountElement.textContent = 'N/A'; // Show error state
+                    visitCountElement.textContent = 'Error'; // Muestra estado de error
                 }
             });
 
-            // Increment the visit count on page load
+            // Incrementar el contador de visitas al cargar la página
             getDoc(visitCounterRef).then(docSnap => {
                 if (docSnap.exists()) {
                     setDoc(visitCounterRef, { count: increment(1) }, { merge: true })
@@ -72,41 +84,37 @@
             });
         }
 
-        // Authenticate user
+        // Autenticar usuario
         onAuthStateChanged(auth, async (user) => {
             if (user) {
                 userId = user.uid;
                 console.log("Usuario autenticado:", userId);
             } else {
                 try {
-                    if (initialAuthToken) {
-                        await signInWithCustomToken(auth, initialAuthToken);
-                        userId = auth.currentUser.uid;
-                        console.log("Sesión iniciada con token personalizado:", userId);
-                    } else {
-                        await signInAnonymously(auth);
-                        userId = auth.currentUser.uid;
-                        console.log("Sesión iniciada anónimamente:", userId);
-                    }
+                    // En un despliegue de Git, no hay un __initial_auth_token.
+                    // Nos autenticamos anónimamente para permitir la escritura en Firestore.
+                    await signInAnonymously(auth);
+                    userId = auth.currentUser.uid;
+                    console.log("Sesión iniciada anónimamente:", userId);
                 } catch (error) {
                     console.error("Error de autenticación de Firebase:", error);
-                    // Fallback if authentication fails, use a random ID
+                    // Si la autenticación falla, usa un ID aleatorio como fallback
                     userId = crypto.randomUUID();
                     console.log("Usando userId aleatorio como fallback:", userId);
                 }
             }
-            isAuthReady = true; // Auth state is now ready
-            // The actual call to handleVisitCounter will be done via window.onload
+            isAuthReady = true; // El estado de autenticación ya está listo
+            // La llamada a handleVisitCounter se hará a través de window.onload
         });
 
-        // Ensure the visit counter logic runs only after the entire page is loaded
-        // and authentication is ready.
+        // Asegurarse de que la lógica del contador de visitas se ejecute solo después de que toda la página esté cargada
+        // y la autenticación esté lista.
         window.onload = () => {
             const checkAuthAndRun = () => {
                 if (isAuthReady) {
                     handleVisitCounter();
                 } else {
-                    setTimeout(checkAuthAndRun, 50); // Retry until auth is ready
+                    setTimeout(checkAuthAndRun, 50); // Reintentar hasta que la autenticación esté lista
                 }
             };
             checkAuthAndRun();
