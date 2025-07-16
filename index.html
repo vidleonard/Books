@@ -35,41 +35,8 @@
         let userId = null; // Will store the authenticated user ID
         let isAuthReady = false; // Flag to indicate if auth state is ready
 
-        // Authenticate user
-        onAuthStateChanged(auth, async (user) => {
-            if (user) {
-                userId = user.uid;
-                console.log("User authenticated:", userId);
-            } else {
-                try {
-                    if (initialAuthToken) {
-                        await signInWithCustomToken(auth, initialAuthToken);
-                        userId = auth.currentUser.uid;
-                        console.log("Signed in with custom token:", userId);
-                    } else {
-                        await signInAnonymously(auth);
-                        userId = auth.currentUser.uid;
-                        console.log("Signed in anonymously:", userId);
-                    }
-                } catch (error) {
-                    console.error("Firebase authentication error:", error);
-                    // Fallback if authentication fails, use a random ID
-                    userId = crypto.randomUUID();
-                    console.log("Using random userId:", userId);
-                }
-            }
-            isAuthReady = true; // Auth state is now ready
-            initializeVisitCounter(); // Initialize counter after auth is ready
-        });
-
-        // Function to initialize and update the visit counter
-        function initializeVisitCounter() {
-            if (!isAuthReady) {
-                console.log("Authentication not ready, retrying visit counter initialization...");
-                setTimeout(initializeVisitCounter, 100); // Retry after a short delay
-                return;
-            }
-
+        // Function to handle visit counter logic
+        function handleVisitCounter() {
             const visitCounterRef = doc(db, `artifacts/${appId}/public/data/visits`, 'page_visits');
             const visitCountElement = document.getElementById('visit-count');
 
@@ -83,24 +50,67 @@
                     visitCountElement.textContent = currentCount;
                 }
             }, (error) => {
-                console.error("Error listening to visit count:", error);
+                console.error("Error al escuchar el contador de visitas:", error);
                 if (visitCountElement) {
                     visitCountElement.textContent = 'N/A'; // Show error state
                 }
             });
 
             // Increment the visit count on page load
-            // Use a transaction to ensure atomic increment
             getDoc(visitCounterRef).then(docSnap => {
                 if (docSnap.exists()) {
-                    setDoc(visitCounterRef, { count: increment(1) }, { merge: true });
+                    setDoc(visitCounterRef, { count: increment(1) }, { merge: true })
+                        .then(() => console.log("Contador de visitas incrementado (documento existente)."))
+                        .catch(err => console.error("Error al establecer el documento (combinar):", err));
                 } else {
-                    setDoc(visitCounterRef, { count: 1 });
+                    setDoc(visitCounterRef, { count: 1 })
+                        .then(() => console.log("Contador de visitas inicializado (nuevo documento)."))
+                        .catch(err => console.error("Error al establecer el documento (nuevo):", err));
                 }
             }).catch(error => {
-                console.error("Error incrementing visit count:", error);
+                console.error("Error al obtener el documento para el incremento:", error);
             });
         }
+
+        // Authenticate user
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                userId = user.uid;
+                console.log("Usuario autenticado:", userId);
+            } else {
+                try {
+                    if (initialAuthToken) {
+                        await signInWithCustomToken(auth, initialAuthToken);
+                        userId = auth.currentUser.uid;
+                        console.log("Sesión iniciada con token personalizado:", userId);
+                    } else {
+                        await signInAnonymously(auth);
+                        userId = auth.currentUser.uid;
+                        console.log("Sesión iniciada anónimamente:", userId);
+                    }
+                } catch (error) {
+                    console.error("Error de autenticación de Firebase:", error);
+                    // Fallback if authentication fails, use a random ID
+                    userId = crypto.randomUUID();
+                    console.log("Usando userId aleatorio como fallback:", userId);
+                }
+            }
+            isAuthReady = true; // Auth state is now ready
+            // The actual call to handleVisitCounter will be done via window.onload
+        });
+
+        // Ensure the visit counter logic runs only after the entire page is loaded
+        // and authentication is ready.
+        window.onload = () => {
+            const checkAuthAndRun = () => {
+                if (isAuthReady) {
+                    handleVisitCounter();
+                } else {
+                    setTimeout(checkAuthAndRun, 50); // Retry until auth is ready
+                }
+            };
+            checkAuthAndRun();
+        };
     </script>
 
     <style>
