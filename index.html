@@ -37,6 +37,7 @@
         let app, db, auth;
         let userId = null; // Almacenará el ID de usuario autenticado
         let isAuthReady = false; // Bandera para indicar si el estado de autenticación está listo
+        let firebaseInitializationError = false; // Nueva bandera para rastrear errores de inicialización
 
         try {
             // Inicializar Firebase
@@ -46,14 +47,21 @@
             console.log("Firebase inicializado correctamente.");
         } catch (error) {
             console.error("Error al inicializar Firebase. Verifica tu firebaseConfig:", error);
-            // Si hay un error en la configuración, el contador no funcionará.
             document.getElementById('visit-count').textContent = 'Error de Configuración';
-            isAuthReady = true; // Marca como listo para evitar bucles, aunque con error.
-            return; // Detiene la ejecución si la inicialización falla.
+            document.getElementById('current-user-id').textContent = 'Error de Init Firebase'; // Mostrar error en ID de usuario también
+            firebaseInitializationError = true; // Marca que hubo un error en la inicialización
+            // isAuthReady permanece false, lo que evitará que handleVisitCounter se llame hasta que se resuelva el error
         }
 
         // Función para manejar la lógica del contador de visitas
         function handleVisitCounter() {
+            // Si hubo un error en la inicialización de Firebase, no intentes interactuar con Firestore.
+            if (firebaseInitializationError || !db || !auth) {
+                console.error("Firebase no está completamente inicializado o hubo un error. No se puede ejecutar el contador de visitas.");
+                document.getElementById('visit-count').textContent = 'Error de Init Firebase';
+                return; // Salir si Firebase no está listo
+            }
+
             // ===========================================================================================
             // ¡ATENCIÓN CRÍTICA!
             // Para que este contador funcione, DEBES configurar las reglas de seguridad de Firestore.
@@ -116,35 +124,47 @@
         }
 
         // Autenticar usuario
-        onAuthStateChanged(auth, async (user) => {
-            if (user) {
-                userId = user.uid;
-                console.log("Usuario autenticado:", userId);
-            } else {
-                try {
-                    // En un despliegue de Git, no hay un __initial_auth_token.
-                    // Nos autenticamos anónimamente para permitir la escritura en Firestore.
-                    await signInAnonymously(auth);
-                    userId = auth.currentUser.uid;
-                    console.log("Sesión iniciada anónimamente:", userId);
-                } catch (error) {
-                    console.error("Error de autenticación de Firebase:", error);
-                    // Si la autenticación falla, usa un ID aleatorio como fallback
-                    userId = crypto.randomUUID();
-                    console.log("Usando userId aleatorio como fallback:", userId);
+        // Solo adjuntar el listener si Firebase se inicializó correctamente
+        if (!firebaseInitializationError) {
+            onAuthStateChanged(auth, async (user) => {
+                if (user) {
+                    userId = user.uid;
+                    console.log("Usuario autenticado:", userId);
+                } else {
+                    try {
+                        // En un despliegue de Git, no hay un __initial_auth_token.
+                        // Nos autenticamos anónimamente para permitir la escritura en Firestore.
+                        await signInAnonymously(auth);
+                        userId = auth.currentUser.uid;
+                        console.log("Sesión iniciada anónimamente:", userId);
+                    } catch (error) {
+                        console.error("Error de autenticación de Firebase:", error);
+                        // Si la autenticación falla, usa un ID aleatorio como fallback
+                        userId = crypto.randomUUID();
+                        console.log("Usando userId aleatorio como fallback:", userId);
+                    }
                 }
-            }
-            isAuthReady = true; // El estado de autenticación ya está listo
-            // La llamada a handleVisitCounter se hará a través de window.onload
-        });
+                isAuthReady = true; // El estado de autenticación ya está listo
+                // La llamada a handleVisitCounter se hará a través de window.onload
+            });
+        } else {
+            console.error("No se pudo adjuntar el listener de autenticación debido a un error de inicialización de Firebase.");
+            document.getElementById('current-user-id').textContent = 'Error de Init Auth';
+        }
+
 
         // Asegurarse de que la lógica del contador de visitas se ejecute solo después de que toda la página esté cargada
         // y la autenticación esté lista.
         window.onload = () => {
             const checkAuthAndRun = () => {
-                if (isAuthReady) {
+                // Solo ejecutar si Firebase se inicializó correctamente Y la autenticación está lista
+                if (!firebaseInitializationError && isAuthReady) {
                     handleVisitCounter();
-                } else {
+                } else if (firebaseInitializationError) {
+                    console.error("Firebase no se inicializó correctamente. No se puede iniciar el contador.");
+                    // El mensaje de error ya debería estar configurado por el bloque try-catch inicial.
+                }
+                else {
                     setTimeout(checkAuthAndRun, 50); // Reintentar hasta que la autenticación esté lista
                 }
             };
@@ -608,3 +628,17 @@
 
 </body>
 </html>
+```
+
+### Pasos a seguir:
+
+1.  **Copia el código completo** de este Canvas y reemplaza el contenido de tu archivo HTML principal en tu repositorio de GitHub.
+2.  **Despliega los cambios** en GitHub Pages.
+3.  **Abre tu página web desplegada.**
+4.  **Abre la Consola del navegador** (normalmente con F12 y yendo a la pestaña "Console").
+    * Verifica si el error `Illegal return statement` ha desaparecido.
+    * Observa los mensajes de `console.log` y `console.error` para entender el flujo de inicialización de Firebase y la autenticación.
+5.  **Verifica el "ID de usuario (debug)"** en el pie de página. Si ahora muestra un ID de usuario (una cadena larga de letras y números), significa que la autenticación anónima está funcionando.
+6.  **Revisa tus reglas de seguridad de Firestore** (en la Consola de Firebase -> Firestore Database -> Reglas). Asegúrate de que sean *exactamente* como te las he proporcionado en el comentario del código, especialmente la regla para `/artifacts/{appId}/public/data/visits/{documentId}` con `allow read, write: if request.auth != null;`. Y recuerda hacer clic en **"Publicar"**.
+
+Si el contador sigue sin actualizarse o muestra un mensaje de error como "Error (Reglas?)", la causa más probable sigue siendo un problema con las reglas de seguridad de Firestore o que la autenticación anónima no esté habilitada en tu proyecto de Fireba
